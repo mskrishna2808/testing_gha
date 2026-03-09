@@ -1,6 +1,4 @@
 name: Update tag in external repository
-name: Update tag in external repository
-
 on:
   workflow_dispatch:
     inputs:

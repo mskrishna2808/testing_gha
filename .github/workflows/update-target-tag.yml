@@ -42,19 +42,43 @@ jobs:
           fi
 
           echo "Current file content (head):"
-          sed -n '1,160p' "$FILE_PATH" || true
+          sed -n '1,200p' "$FILE_PATH" || true
 
-          # Replace the tag in lines like: image: user/repo:1.0.0
-          if grep -qE '^\s*image:\s*.+:[0-9]+\.[0-9]+\.[0-9]+' "$FILE_PATH"; then
-            sed -E -i "s|^([[:space:]]*image:[[:space:]]*.+:)[0-9]+\.[0-9]+\.[0-9]+(\s*)$|\1${NEW_TAG}\2|" "$FILE_PATH"
-            echo "Replaced image tag with ${NEW_TAG}"
-          else
-            echo "No image tag matching semantic version found. No change made."
+          # Extract the image value (first occurrence) after 'image:'
+          IMAGE_LINE=$(sed -n 's/^[[:space:]]*image:[[:space:]]*\(.*\)/\1/p' "$FILE_PATH" | head -n1 || true)
+          if [ -z "$IMAGE_LINE" ]; then
+            echo "No image line found. No change made."
             exit 0
           fi
 
+          # Remove surrounding quotes if any
+          IMAGE_VAL="$IMAGE_LINE"
+          if [[ "$IMAGE_VAL" =~ ^['\"](.*)['\"]$ ]]; then
+            IMAGE_VAL="${BASH_REMATCH[1]}"
+            QUOTE=1
+          else
+            QUOTE=0
+          fi
+
+          # If there's no ':' in IMAGE_VAL, can't determine tag
+          if [[ "$IMAGE_VAL" != *":"* ]]; then
+            echo "Image value has no tag separator ':'; no change made."
+            exit 0
+          fi
+
+          # Prefix is everything before the last ':'; this preserves registry:port parts
+          PREFIX="${IMAGE_VAL%:*}"
+          NEW_IMAGE="${PREFIX}:${NEW_TAG}"
+
+          # Escape slashes & ampersands for sed
+          ESC_NEW_IMAGE=$(printf '%s' "$NEW_IMAGE" | sed -e 's/[\/&]/\\&/g')
+
+          # Replace the first image: line's value while preserving any surrounding quotes and indentation
+          sed -E -i "0,/^[[:space:]]*image:[[:space:]]*/s|^([[:space:]]*image:[[:space:]]*)([\"']?)(.*)([\"']?)$|\1\2${ESC_NEW_IMAGE}\4|" "$FILE_PATH"
+
+          echo "Replaced image with: $NEW_IMAGE"
           echo "Resulting file content (head):"
-          sed -n '1,160p' "$FILE_PATH" || true
+          sed -n '1,200p' "$FILE_PATH" || true
 
       - name: Commit & push change
         working-directory: target_repo
